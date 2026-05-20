@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv
+venv/
+env/
+
+# Environment / secrets
+.env
+
+# Benchmark CSV/JSONL outputs ARE committed: they are the reproducible evidence
+# behind the README results table. Only the rotating per-run archive and the
+# transient run logs are ignored.
+plots/
+presentation/
+benchmarks/archive/
+benchmarks/sweep.log
+benchmarks/run_console.log
+
+# Local / editor / personal
+.claude/
+.idea/
+.vscode/
+docs/
+
+# OS files
+.DS_Store
+Thumbs.db
