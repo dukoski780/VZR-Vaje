@@ -338,7 +338,3 @@ scalability — is not exercised by this benchmark.
 documentation, the AI tool Claude (Anthropic) was used as an aid for generating
 ideas, optimising code, and drafting text. All final solutions were reviewed,
 verified, and adjusted as needed by the project author.
-
-## References
-
-Anthropic, (2026), Claude (Opus 4.x) [Large language model], https://claude.ai/
