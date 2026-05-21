@@ -126,7 +126,7 @@ python3 benchmarks/analyze.py    # prints the results table to the console
 > the `export PATH=...` line to add after `brew install openjdk@17`).
 
 > **Runtime.** The full sweep — 33 timed runs (serial + MPI×5 + Spark×5, three
-> repeats each) over all 2 577 pages — takes **about 2 hours** on the
+> repeats each) over all 2 577 pages — takes **about 2.5 hours** on the
 > development machine. Most of that is the network, not the CPU: the first
 > serial pass fetches every page cold (~40 min) and every later run still
 > issues 2 577 HTTP requests. The `work_multiplier` then amplifies the per-page
@@ -256,11 +256,13 @@ One **worker** = one process/thread doing fetch + CPU work.
   the average of three consecutive runs.
 * **Hardware**: AMD Ryzen 9 9950X, 16 physical / 32 logical cores, Wi-Fi.
   p=16 uses all physical cores; p=32 would be oversubscription.
-* **Caching**: the first serial run fetches all pages cold (~40 min,
+* **Caching**: the first serial run fetches all 2 577 pages cold (~40 min,
   network-dominated). The FIS CDN warms after that pass; subsequent runs see
-  cached responses (~5 min each, CPU-dominated). All framework comparisons are
+  cached responses (~7 min each, CPU-dominated). All framework comparisons are
   made under the same warm-cache, CPU-bound conditions, which is why `T(1)` uses
-  the *median* serial time (robust against the cold first run).
+  the *median* serial time (~435 s), robust against the cold first run. (This is
+  why the serial row's T std is huge — it mixes the one cold run with two warm
+  ones; only the median feeds the speedup baseline.)
 
 ---
 
@@ -273,30 +275,30 @@ One **worker** = one process/thread doing fetch + CPU work.
 
 | Metric | Value |
 |---|---|
-| Pages processed | 2 577 |
+| Pages processed | 2 577 (0 failed) |
 | Slovenian / English pages | 1 506 (58 %) / 1 071 (42 %) |
-| Avg words / page | 1543 |
-| Avg unique words / page | 459 |
-| Avg type-token ratio | 0.297 |
-| Avg words — SL / EN | 1506 / 1596 |
+| Avg words / page | 1529 |
+| Avg unique words / page | 447 |
+| Avg type-token ratio | 0.292 |
+| Avg words — SL / EN | 1498 / 1573 |
 | Avg page size | 215 KB |
-| "FIS" keyword hits | 17505 (2577 pages) |
+| "FIS" keyword hits | 17513 (2577 pages) |
 
 ### Benchmark summary (3-run mean)
 
 | Framework | Workers | Runs | T mean [s] | T std [s] | Speedup | Efficiency | Karp-Flatt e |
 |---|---|---|---|---|---|---|---|
-| mpi | 1 | 3 | 157.050 | 0.274 | 1.012 | 1.012 | - |
-| mpi | 2 | 3 | 80.362 | 0.393 | 1.977 | 0.988 | 0.0117 |
-| mpi | 4 | 3 | 40.114 | 0.900 | 3.960 | 0.990 | 0.0033 |
-| mpi | 8 | 3 | 20.593 | 0.051 | 7.715 | 0.964 | 0.0053 |
-| mpi | 16 | 3 | 18.559 | 1.958 | 8.560 | 0.535 | 0.0579 |
-| serial | 1 | 3 | 928.563 | 1333.448 | 0.171 | 0.171 | - |
-| spark | 1 | 3 | 156.780 | 1.052 | 1.013 | 1.013 | - |
-| spark | 2 | 3 | 80.215 | 0.434 | 1.981 | 0.990 | 0.0098 |
-| spark | 4 | 3 | 41.169 | 0.902 | 3.859 | 0.965 | 0.0122 |
-| spark | 8 | 3 | 22.172 | 0.218 | 7.165 | 0.896 | 0.0166 |
-| spark | 16 | 3 | 19.224 | 2.088 | 8.264 | 0.517 | 0.0624 |
+| mpi | 1 | 3 | 434.700 | 1.479 | 1.000 | 1.000 | - |
+| mpi | 2 | 3 | 222.815 | 0.538 | 1.951 | 0.976 | 0.0249 |
+| mpi | 4 | 3 | 114.958 | 0.086 | 3.782 | 0.946 | 0.0192 |
+| mpi | 8 | 3 | 61.762 | 0.126 | 7.040 | 0.880 | 0.0195 |
+| mpi | 16 | 3 | 36.283 | 0.360 | 11.983 | 0.749 | 0.0223 |
+| serial | 1 | 3 | 1158.061 | 1253.814 | 0.375 | 0.375 | - |
+| spark | 1 | 3 | 433.087 | 1.264 | 1.004 | 1.004 | - |
+| spark | 2 | 3 | 222.390 | 0.992 | 1.955 | 0.978 | 0.0230 |
+| spark | 4 | 3 | 117.461 | 0.176 | 3.702 | 0.925 | 0.0269 |
+| spark | 8 | 3 | 66.157 | 0.483 | 6.572 | 0.822 | 0.0310 |
+| spark | 16 | 3 | 40.288 | 0.840 | 10.792 | 0.675 | 0.0322 |
 
 ---
 
@@ -312,23 +314,35 @@ Reading `e`: small and flat ⇒ workload scales cleanly (the gap from ideal is
 honest sequential code, e.g. the manager's dispatch loop); growing with `p` ⇒
 overhead grows with worker count (manager contention or communication).
 
-**MPI** scales well up to p=8 (S=7.72×, efficiency 0.96). `e` stays flat and low
-(0.012 at p=2, 0.005 at p=8), indicating clean scaling. At p=16 the speedup
-stalls at 8.56× and efficiency collapses to 0.54; `e` jumps to 0.058. **The
-bottleneck is manager dispatch contention**: with 16 workers reporting back
-simultaneously, the manager's `recv`/`send` loop serialises the work queue and
-can no longer feed workers fast enough.
+**MPI** scales cleanly across the whole range: S=1.95× at p=2, 3.78× at p=4,
+7.04× at p=8, and **11.98× at p=16** (efficiency 0.75). Karp-Flatt `e` stays
+flat and low at every worker count (0.025 → 0.019 → 0.020 → 0.022), which means
+the gap from ideal speedup is a small, roughly constant serial fraction — the
+manager's dispatch loop — and **not** an overhead that grows with worker count.
+Because the workload is genuinely CPU-bound (per-page CPU ≈ 2.6× the warm fetch
+time), each worker has enough compute to stay busy and there is no dispatch
+starvation, even at p=16.
 
-**Spark** follows a similar curve but with lower efficiency at every `p` due to
-the constant JVM/Py4J boundary cost. At p=16: S=8.26×, E=0.52, `e`=0.062. That
-fixed per-task serialisation cost does not shrink with more workers, so `e`
-stays elevated relative to MPI. Spark p=1 ≈ the serial baseline (S≈1.01),
-expected because the CDN-warm workload is CPU-dominated.
+**Spark** tracks the same curve but sits slightly behind MPI at every `p`
+(S=10.79×, E=0.68 at p=16). The qualitative difference is in `e`: where MPI's is
+flat, Spark's `e` *grows* with `p` (0.023 → 0.027 → 0.031 → 0.032). That is the
+signature of the fixed JVM/Py4J per-task serialisation cost — it is paid on
+every task and does not shrink as workers are added, so the effective serial
+fraction creeps up. Spark p=1 ≈ the serial baseline (S≈1.00), expected for a
+CPU-dominated workload.
 
-**MPI is consistently faster than Spark** at every measured `p` (p=4: 40.1 s vs.
-41.2 s; larger gap at p=16). For this single-machine workload mpi4py wins on
-absolute wallclock. Spark's advantage — fault tolerance and cluster
-scalability — is not exercised by this benchmark.
+**MPI is consistently faster than Spark** at every measured `p` (p=8: 61.8 s vs.
+66.2 s; p=16: 36.3 s vs. 40.3 s), and the gap widens with worker count, exactly
+as the rising Spark `e` predicts. For this single-machine, CPU-bound workload
+mpi4py wins on both absolute wallclock and scaling efficiency. Spark's real
+advantages — fault tolerance, data-locality scheduling, and cluster scale-out —
+are not exercised by a single-node benchmark.
+
+Two effects hold the p=16 efficiency below 1.0 for both runtimes: the machine
+has 16 *physical* cores, so MPI's 17 processes (16 workers + manager) and
+Spark's 16 threads + driver lightly oversubscribe the cores, and the residual
+~5 % serial fetch time per page (warm) is not perfectly overlappable. E≈0.7–0.75
+at full core count is a healthy result.
 
 ---
 
